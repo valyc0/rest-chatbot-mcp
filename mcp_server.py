@@ -11,6 +11,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import traceback
+from collections import defaultdict, deque
 
 # FastAPI imports
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
@@ -79,8 +80,16 @@ except ImportError as e:
     MCP_AVAILABLE = False
 
 # Modelli Pydantic per API
+class ConversationMessage(BaseModel):
+    """Messaggio in una conversazione"""
+    id: str = Field(..., description="ID univoco del messaggio")
+    content: str = Field(..., description="Contenuto del messaggio")
+    role: str = Field(..., description="Ruolo del messaggio (user, assistant)")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp del messaggio")
+
 class MCPQueryRequest(BaseModel):
     prompt: str = Field(..., description="Prompt da inviare al modello AI")
+    user_id: Optional[str] = Field("default", description="ID dell'utente per il tracking della conversazione")
     provider: Optional[str] = Field(None, description="Provider AI (gemini, openrouter)")
     model: Optional[str] = Field(None, description="Modello specifico da usare")
     max_steps: Optional[int] = Field(3, description="Numero massimo di passi MCP")
@@ -88,6 +97,7 @@ class MCPQueryRequest(BaseModel):
     max_tokens: Optional[int] = Field(None, description="Numero massimo di token")
     system_prompt: Optional[str] = Field(None, description="Prompt di sistema opzionale")
     prompt_file: Optional[str] = Field(None, description="Nome del file di prompt da usare (senza estensione)")
+    use_context: Optional[bool] = Field(True, description="Se includere il contesto delle conversazioni precedenti")
 
 class MCPQueryResponse(BaseModel):
     response: str = Field(..., description="Risposta del modello AI")
@@ -96,6 +106,9 @@ class MCPQueryResponse(BaseModel):
     steps: int = Field(..., description="Numero di passi eseguiti")
     timestamp: str = Field(..., description="Timestamp della risposta")
     execution_time: float = Field(..., description="Tempo di esecuzione in secondi")
+    conversation_id: str = Field(..., description="ID della conversazione")
+    context_used: bool = Field(..., description="Se è stato utilizzato il contesto precedente")
+    context_messages_count: int = Field(..., description="Numero di messaggi del contesto utilizzati")
 
 class ProviderInfo(BaseModel):
     name: str
@@ -226,6 +239,16 @@ class MCPService:
         self.config = self._load_config()
         self.start_time = datetime.now()
         
+        # Sistema di memoria per conversazioni per utente
+        # Struttura: {user_id: deque([{role, content, timestamp}], maxlen=limit)}
+        self.conversation_memory = defaultdict(lambda: deque(
+            maxlen=int(os.getenv('CONVERSATION_MEMORY_LIMIT', 30))
+        ))
+        self.memory_limit = int(os.getenv('CONVERSATION_MEMORY_LIMIT', 30))
+        self.default_user_id = os.getenv('DEFAULT_USER_ID', 'default')
+        
+        logger.info(f"Sistema memoria conversazioni inizializzato - Limite: {self.memory_limit} messaggi per utente")
+        
     def _load_config(self) -> Dict[str, Any]:
         """Carica la configurazione dal file JSON"""
         try:
@@ -253,6 +276,88 @@ class MCPService:
         except Exception as e:
             logger.error(f"Errore nel caricamento del prompt da {prompt_file}: {e}")
             return None
+    
+    def _add_message_to_memory(self, user_id: str, role: str, content: str):
+        """Aggiunge un messaggio alla memoria dell'utente"""
+        if not user_id:
+            user_id = self.default_user_id
+            
+        message = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Aggiunge alla deque che automaticamente mantiene il limite
+        self.conversation_memory[user_id].append(message)
+        
+        logger.debug(f"Messaggio aggiunto alla memoria per utente {user_id}. "
+                    f"Messaggi totali: {len(self.conversation_memory[user_id])}")
+    
+    def _get_conversation_context(self, user_id: str) -> List[Dict[str, str]]:
+        """Recupera il contesto delle conversazioni per un utente"""
+        if not user_id:
+            user_id = self.default_user_id
+            
+        messages = list(self.conversation_memory.get(user_id, []))
+        
+        logger.debug(f"Recuperati {len(messages)} messaggi dal contesto per utente {user_id}")
+        return messages
+    
+    def _build_context_prompt(self, user_id: str, current_prompt: str) -> str:
+        """Costruisce un prompt includendo il contesto delle conversazioni precedenti"""
+        context_messages = self._get_conversation_context(user_id)
+        
+        if not context_messages:
+            logger.debug("Nessun contesto precedente trovato")
+            return current_prompt
+        
+        # Costruisce il contesto
+        context_parts = ["=== CONTESTO CONVERSAZIONE PRECEDENTE ==="]
+        
+        for msg in context_messages:
+            role_label = "UTENTE" if msg["role"] == "user" else "ASSISTENTE"
+            context_parts.append(f"{role_label}: {msg['content']}")
+        
+        context_parts.extend([
+            "=== FINE CONTESTO ===",
+            "",
+            f"DOMANDA CORRENTE: {current_prompt}"
+        ])
+        
+        context_prompt = "\n".join(context_parts)
+        
+        logger.debug(f"Contesto costruito con {len(context_messages)} messaggi precedenti")
+        return context_prompt
+    
+    def clear_user_memory(self, user_id: str = None):
+        """Pulisce la memoria delle conversazioni per un utente specifico o tutti"""
+        if user_id:
+            if user_id in self.conversation_memory:
+                self.conversation_memory[user_id].clear()
+                logger.info(f"Memoria cancellata per utente: {user_id}")
+            else:
+                logger.info(f"Nessuna memoria trovata per utente: {user_id}")
+        else:
+            self.conversation_memory.clear()
+            logger.info("Memoria di tutte le conversazioni cancellata")
+    
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """Restituisce statistiche sulla memoria delle conversazioni"""
+        stats = {
+            "memory_limit": self.memory_limit,
+            "default_user_id": self.default_user_id,
+            "active_users": len(self.conversation_memory),
+            "users": {}
+        }
+        
+        for user_id, messages in self.conversation_memory.items():
+            stats["users"][user_id] = {
+                "message_count": len(messages),
+                "last_message_time": messages[-1]["timestamp"] if messages else None
+            }
+        
+        return stats
     
     def get_available_providers(self) -> List[ProviderInfo]:
         """Restituisce la lista dei provider disponibili"""
@@ -397,15 +502,20 @@ class MCPService:
         """Esegue una query usando MCP"""
         start_time = datetime.now()
         
+        # Determina user_id (usa default se non specificato)
+        user_id = request.user_id or self.default_user_id
+        
         # Log della richiesta in debug
         logger.debug("=== INIZIO RICHIESTA MCP ===")
         logger.debug(f"Request ID: {id(request)}")
+        logger.debug(f"User ID: {user_id}")
         logger.debug(f"Prompt: {request.prompt[:200]}{'...' if len(request.prompt) > 200 else ''}")
         logger.debug(f"Provider richiesto: {request.provider}")
         logger.debug(f"Modello richiesto: {request.model}")
         logger.debug(f"Max steps: {request.max_steps}")
         logger.debug(f"Temperature: {request.temperature}")
         logger.debug(f"Max tokens: {request.max_tokens}")
+        logger.debug(f"Use context: {request.use_context}")
         logger.debug(f"System prompt: {request.system_prompt[:100] + '...' if request.system_prompt and len(request.system_prompt) > 100 else request.system_prompt}")
         
         # Determina provider e modello che verranno utilizzati
@@ -452,13 +562,29 @@ class MCPService:
                     system_prompt = default_prompt
                     logger.info("Utilizzando prompt di default da file")
             
-            # Prepara il prompt finale
+            # Gestione del contesto delle conversazioni
+            context_used = False
+            context_messages_count = 0
             query_text = request.prompt
+            
+            if request.use_context:
+                # Costruisce il prompt con il contesto delle conversazioni precedenti
+                context_messages = self._get_conversation_context(user_id)
+                if context_messages:
+                    query_text = self._build_context_prompt(user_id, request.prompt)
+                    context_used = True
+                    context_messages_count = len(context_messages)
+                    logger.info(f"Utilizzando contesto conversazione con {context_messages_count} messaggi precedenti per utente {user_id}")
+            
+            # Aggiungi il system prompt se specificato
             if system_prompt:
-                query_text = f"System: {system_prompt}\n\nUser: {request.prompt}"
+                query_text = f"System: {system_prompt}\n\nUser: {query_text}"
                 logger.debug("System prompt aggiunto alla query")
             
             logger.debug(f"Query finale preparata (lunghezza: {len(query_text)} caratteri)")
+            
+            # Salva la domanda dell'utente nella memoria
+            self._add_message_to_memory(user_id, "user", request.prompt)
             
             # Esegue la query
             logger.debug("Invio query al modello AI...")
@@ -466,6 +592,9 @@ class MCPService:
                 query=query_text,
                 max_steps=request.max_steps or self.config.get("max_steps", 3)
             )
+            
+            # Salva la risposta dell'assistente nella memoria
+            self._add_message_to_memory(user_id, "assistant", result)
             
             execution_time = (datetime.now() - start_time).total_seconds()
             logger.debug(f"Query completata in {execution_time:.2f} secondi")
@@ -485,7 +614,10 @@ class MCPService:
                 model=used_model,
                 steps=request.max_steps or self.config.get("max_steps", 3),
                 timestamp=datetime.now().isoformat(),
-                execution_time=execution_time
+                execution_time=execution_time,
+                conversation_id=user_id,
+                context_used=context_used,
+                context_messages_count=context_messages_count
             )
             
         except Exception as e:
