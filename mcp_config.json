@@ -1,0 +1,46 @@
+{
+  "mcpServers": {
+    "1mcp-agent": {
+      "url": "http://localhost:3051/sse",
+      "headers": {},
+      "description": "1MCP Agent via HTTP/SSE",
+      "disabled": false
+    }
+  },
+  "providers": {
+    "gemini": {
+      "api_key": "",
+      "model": "gemini-2.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "models": [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+      ]
+    },
+    "openrouter": {
+      "api_key": "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",
+      "model": "deepseek/deepseek-chat-v3-0324:free",
+      "base_url": "https://openrouter.ai/api/v1",
+      "models": [
+        "deepseek/deepseek-chat-v3-0324:free",
+        "anthropic/claude-3-sonnet",
+        "anthropic/claude-3-haiku", 
+        "openai/gpt-4",
+        "openai/gpt-3.5-turbo",
+        "meta-llama/llama-2-70b-chat",
+        "mistralai/mistral-7b-instruct",
+        "google/gemini-pro",
+        "cohere/command-r-plus"
+      ]
+    }
+  },
+  "default_provider": "gemini",
+  "max_steps": 10,
+  "timeout": 30,
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "debug": true
+  }
+}
