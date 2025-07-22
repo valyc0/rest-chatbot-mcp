@@ -9,7 +9,6 @@
   },
   "providers": {
     "gemini": {
-      "api_key": "",
       "model": "gemini-2.5-flash",
       "base_url": "https://generativelanguage.googleapis.com",
       "models": [
@@ -20,7 +19,6 @@
       "disabled": true
     },
     "openrouter": {
-      "api_key": "sk-or-v1-618d6...",
       "model": "deepseek/deepseek-chat-v3-0324:free",
       "base_url": "https://openrouter.ai/api/v1",
       "models": [
