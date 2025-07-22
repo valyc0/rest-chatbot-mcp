@@ -8,11 +8,13 @@ Il **Chatbot React UI** è un'applicazione frontend che:
 
 - 🌐 **Interfaccia Web Moderna**: Fornisce una chat interface pulita e responsive
 - 🔗 **Connessione MCP**: Si connette al server MCP tramite webhook HTTP POST
-- � **Gestione Rubrica**: Specializzato per operazioni CRUD su una rubrica telefonica
+- 📋 **Gestione Rubrica**: Specializzato per operazioni CRUD su una rubrica telefonica
 - 💬 **Chat Interattiva**: Permette conversazioni naturali con il bot
 - 🚀 **Messaggi Rapidi**: Bottoni predefiniti per operazioni comuni
 - 🔄 **Sessione Persistente**: Mantiene il contesto della conversazione
 - ⚡ **Real-time**: Indicatori di stato e risposte immediate
+- 🧠 **Gestione Memoria**: Controllo completo della memoria delle conversazioni
+- 📊 **Statistiche**: Visualizzazione dettagliata dell'uso della memoria
 
 ## 🏗️ Architettura
 
@@ -21,6 +23,60 @@ Frontend (React) → HTTP POST → Server MCP → Database Operations
      ↓                           ↓
 localhost:3000              localhost:5678/webhook/aa
 ```
+
+## 🧠 Gestione Memoria delle Conversazioni
+
+### Funzionalità Memoria
+
+La nuova versione include un sistema completo di gestione della memoria delle conversazioni:
+
+#### Pannello Memoria
+- **Pulsante "🧠 Memoria"** nell'header per accedere al pannello
+- **Statistiche dettagliate** su memoria utilizzata
+- **Lista utenti attivi** con informazioni sui messaggi
+- **Controlli di cancellazione** individuali e globali
+
+#### Operazioni Disponibili
+- **📊 Mostra Statistiche**: Visualizza statistiche complete della memoria
+- **🧹 Pulisci Memoria Utente**: Cancella memoria per l'utente corrente
+- **🗑️ Pulisci Tutta la Memoria**: Cancella memoria di tutti gli utenti (con conferma)
+- **Cancellazione Individuale**: Pulsanti per cancellare memoria di utenti specifici
+
+#### Configurazione Memoria
+Nel pannello configurazione sono disponibili:
+- **URL Memoria**: Endpoint per le API di gestione memoria (default: `http://localhost:8000/api/v1/memory`)
+- **User ID**: Identificativo utente per la sessione (default: `default`)
+
+#### API Utilizzate
+
+**GET /api/v1/memory/stats** - Statistiche memoria:
+```json
+{
+  "memory_limit": 30,
+  "default_user_id": "default", 
+  "active_users": 2,
+  "users": {
+    "user1": {
+      "message_count": 4,
+      "last_message_time": "2025-01-22T10:30:45"
+    }
+  }
+}
+```
+
+**DELETE /api/v1/memory/clear** - Cancellazione memoria:
+```json
+// Per utente specifico
+{ "user_id": "user1" }
+
+// Per tutti gli utenti
+{}
+```
+
+#### Messaggi Rapidi Memoria
+Sono stati aggiunti nuovi pulsanti rapidi:
+- **"📊 Statistiche Memoria"** - Mostra immediatamente le statistiche
+- **"🧹 Pulisci Memoria"** - Cancella velocemente la memoria dell'utente
 
 ## 🚀 Compilazione e Avvio
 

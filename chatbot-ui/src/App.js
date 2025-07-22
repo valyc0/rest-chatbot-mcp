@@ -7,15 +7,19 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState('1'); // Fixed session ID for simplicity
   const [showConfig, setShowConfig] = useState(false);
+  const [showMemoryPanel, setShowMemoryPanel] = useState(false);
+  const [memoryStats, setMemoryStats] = useState(null);
   
   // Configuration state
   const [config, setConfig] = useState({
     serverUrl: 'http://localhost:8000/api/v1/query',
+    memoryUrl: 'http://localhost:8000/api/v1/memory',
     responseField: 'response',
     provider: 'gemini',
     model: 'gemini-2.5-flash',
     maxSteps: 15,
-    temperature: 0.1
+    temperature: 0.1,
+    userId: 'default' // User ID for memory management
   });
   
   const messagesEndRef = useRef(null);
@@ -45,6 +49,7 @@ function App() {
     try {
       const requestBody = {
         prompt: inputMessage,
+        user_id: config.userId,
         provider: config.provider,
         model: config.model,
         max_steps: config.maxSteps,
@@ -133,6 +138,7 @@ function App() {
     try {
       const requestBody = {
         prompt: "Test di connessione",
+        user_id: config.userId,
         provider: config.provider,
         model: config.model,
         max_steps: config.maxSteps,
@@ -160,6 +166,141 @@ function App() {
       const errorMessage = {
         id: Date.now() + 1,
         text: `❌ Connessione fallita! Verifica che il server sia attivo su ${config.serverUrl}`,
+        sender: 'bot',
+        timestamp: new Date().toLocaleTimeString(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Memory management functions
+  const getMemoryStats = async () => {
+    try {
+      const response = await fetch(`${config.memoryUrl}/stats`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (response.ok) {
+        const stats = await response.json();
+        setMemoryStats(stats);
+        return stats;
+      } else {
+        console.error('Failed to get memory stats:', response.statusText);
+        return null;
+      }
+    } catch (error) {
+      console.error('Error getting memory stats:', error);
+      return null;
+    }
+  };
+
+  const clearUserMemory = async (userId = null) => {
+    const targetUserId = userId || config.userId;
+    setIsLoading(true);
+
+    try {
+      const requestBody = userId ? { user_id: targetUserId } : {};
+      
+      const response = await fetch(`${config.memoryUrl}/clear`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        const successMessage = {
+          id: Date.now(),
+          text: `🧹 ${result.message}`,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString()
+        };
+        setMessages(prev => [...prev, successMessage]);
+
+        // Refresh memory stats if panel is open
+        if (showMemoryPanel) {
+          await getMemoryStats();
+        }
+      } else {
+        const errorMessage = {
+          id: Date.now(),
+          text: `❌ Errore nella cancellazione memoria: ${response.status} ${response.statusText}`,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString(),
+          isError: true
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('Error clearing memory:', error);
+      const errorMessage = {
+        id: Date.now(),
+        text: `❌ Errore nella cancellazione memoria: ${error.message}`,
+        sender: 'bot',
+        timestamp: new Date().toLocaleTimeString(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const clearAllMemory = async () => {
+    if (!window.confirm('Sei sicuro di voler cancellare TUTTA la memoria delle conversazioni? Questa operazione non può essere annullata.')) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`${config.memoryUrl}/clear`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        const successMessage = {
+          id: Date.now(),
+          text: `🧹 ${result.message}`,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString()
+        };
+        setMessages(prev => [...prev, successMessage]);
+
+        // Refresh memory stats if panel is open
+        if (showMemoryPanel) {
+          await getMemoryStats();
+        }
+      } else {
+        const errorMessage = {
+          id: Date.now(),
+          text: `❌ Errore nella cancellazione memoria globale: ${response.status} ${response.statusText}`,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString(),
+          isError: true
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('Error clearing all memory:', error);
+      const errorMessage = {
+        id: Date.now(),
+        text: `❌ Errore nella cancellazione memoria globale: ${error.message}`,
         sender: 'bot',
         timestamp: new Date().toLocaleTimeString(),
         isError: true
@@ -218,6 +359,9 @@ function App() {
           <div className="header-buttons">
             <button onClick={() => setShowConfig(!showConfig)} className="config-button">
               ⚙️ Configurazione
+            </button>
+            <button onClick={() => setShowMemoryPanel(!showMemoryPanel)} className="memory-button">
+              🧠 Memoria
             </button>
             <button onClick={clearChat} className="clear-button">
               Pulisci Chat
@@ -292,6 +436,26 @@ function App() {
                 />
               </div>
               
+              <div className="config-group">
+                <label>URL Memoria:</label>
+                <input
+                  type="text"
+                  value={config.memoryUrl}
+                  onChange={(e) => updateConfig('memoryUrl', e.target.value)}
+                  placeholder="http://localhost:8000/api/v1/memory"
+                />
+              </div>
+              
+              <div className="config-group">
+                <label>User ID:</label>
+                <input
+                  type="text"
+                  value={config.userId}
+                  onChange={(e) => updateConfig('userId', e.target.value)}
+                  placeholder="default"
+                />
+              </div>
+              
               <div className="config-buttons">
                 <button onClick={saveConfig} className="save-button">
                   💾 Salva
@@ -300,6 +464,62 @@ function App() {
                   ❌ Annulla
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {showMemoryPanel && (
+          <div className="memory-panel">
+            <h3>🧠 Gestione Memoria Conversazioni</h3>
+            <div className="memory-content">
+              <div className="memory-buttons">
+                <button onClick={getMemoryStats} className="stats-button">
+                  📊 Mostra Statistiche
+                </button>
+                <button onClick={() => clearUserMemory()} className="clear-user-button">
+                  🧹 Pulisci Memoria Utente ({config.userId})
+                </button>
+                <button onClick={clearAllMemory} className="clear-all-button">
+                  🗑️ Pulisci Tutta la Memoria
+                </button>
+                <button onClick={() => setShowMemoryPanel(false)} className="close-button">
+                  ❌ Chiudi
+                </button>
+              </div>
+              
+              {memoryStats && (
+                <div className="memory-stats">
+                  <h4>📈 Statistiche Memoria</h4>
+                  <div className="stats-info">
+                    <p><strong>Limite messaggi per utente:</strong> {memoryStats.memory_limit}</p>
+                    <p><strong>User ID default:</strong> {memoryStats.default_user_id}</p>
+                    <p><strong>Utenti attivi:</strong> {memoryStats.active_users}</p>
+                  </div>
+                  
+                  {memoryStats.users && Object.keys(memoryStats.users).length > 0 && (
+                    <div className="users-list">
+                      <h5>👥 Dettagli Utenti:</h5>
+                      {Object.entries(memoryStats.users).map(([userId, userInfo]) => (
+                        <div key={userId} className="user-info">
+                          <div className="user-details">
+                            <strong>{userId}</strong>: {userInfo.message_count} messaggi
+                            <span className="last-message">
+                              (ultimo: {new Date(userInfo.last_message_time).toLocaleString()})
+                            </span>
+                          </div>
+                          <button 
+                            onClick={() => clearUserMemory(userId)} 
+                            className="clear-specific-user-button"
+                            title={`Pulisci memoria di ${userId}`}
+                          >
+                            🧹
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -330,6 +550,18 @@ function App() {
               className="quick-button test-button"
             >
               🔧 Test Connessione
+            </button>
+            <button 
+              onClick={getMemoryStats}
+              className="quick-button memory-stats-button"
+            >
+              📊 Statistiche Memoria
+            </button>
+            <button 
+              onClick={() => clearUserMemory()}
+              className="quick-button clear-memory-button"
+            >
+              🧹 Pulisci Memoria
             </button>
           </div>
         </div>
