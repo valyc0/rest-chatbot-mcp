@@ -201,6 +201,69 @@ curl -X GET "http://localhost:8000/api/v1/providers"
 curl -X GET "http://localhost:8000/api/v1/providers/gemini/models"
 ```
 
+### 8. Gestione Memoria Conversazioni
+
+#### 8.1. Visualizzare Statistiche Memoria
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/memory/stats"
+```
+
+Risposta:
+```json
+{
+  "memory_limit": 30,
+  "default_user_id": "default",
+  "active_users": 2,
+  "users": {
+    "user1": {
+      "message_count": 4,
+      "last_message_time": "2025-01-22T10:30:45"
+    },
+    "user2": {
+      "message_count": 2,
+      "last_message_time": "2025-01-22T10:25:30"
+    }
+  }
+}
+```
+
+#### 8.2. Pulire Memoria Utente Specifico
+
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/memory/clear" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user1"}'
+```
+
+Risposta:
+```json
+{
+  "success": true,
+  "message": "Memoria conversazione pulita per utente: user1",
+  "cleared_user": "user1",
+  "users_cleared": 1
+}
+```
+
+#### 8.3. Pulire Memoria di Tutti gli Utenti
+
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/memory/clear" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Risposta:
+```json
+{
+  "success": true,
+  "message": "Memoria di tutte le conversazioni pulita. Utenti interessati: 3",
+  "cleared_user": null,
+  "users_cleared": 3
+}
+```
+
 ## Chatbot UI
 
 Il progetto include una interfaccia web React per interagire facilmente con il server MCP.

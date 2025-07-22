@@ -16,10 +16,11 @@
         "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-pro"
-      ]
+      ],
+      "disabled": true
     },
     "openrouter": {
-      "api_key": "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",
+      "api_key": "sk-or-v1-618d6...",
       "model": "deepseek/deepseek-chat-v3-0324:free",
       "base_url": "https://openrouter.ai/api/v1",
       "models": [
@@ -35,7 +36,7 @@
       ]
     }
   },
-  "default_provider": "gemini",
+  "default_provider": "openrouter",
   "max_steps": 10,
   "timeout": 30,
   "server": {

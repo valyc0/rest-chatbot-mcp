@@ -123,6 +123,22 @@ class ServerStatus(BaseModel):
     providers: List[ProviderInfo]
     uptime: str
 
+# Modelli per la gestione della memoria delle conversazioni
+class MemoryStatsResponse(BaseModel):
+    memory_limit: int = Field(..., description="Limite massimo di messaggi per utente")
+    default_user_id: str = Field(..., description="ID utente di default")
+    active_users: int = Field(..., description="Numero di utenti attivi con conversazioni")
+    users: Dict[str, Dict[str, Any]] = Field(..., description="Statistiche per ogni utente")
+
+class ClearMemoryRequest(BaseModel):
+    user_id: Optional[str] = Field(None, description="ID utente specifico da pulire. Se non fornito, pulisce tutte le conversazioni")
+
+class ClearMemoryResponse(BaseModel):
+    success: bool = Field(..., description="Se l'operazione è riuscita")
+    message: str = Field(..., description="Messaggio descrittivo dell'operazione")
+    cleared_user: Optional[str] = Field(None, description="ID dell'utente pulito")
+    users_cleared: int = Field(..., description="Numero di utenti le cui conversazioni sono state pulite")
+
 # Implementazione OpenRouter LLM personalizzata
 class OpenRouterLLM(BaseChatModel):
     """Wrapper per OpenRouter API compatibile con LangChain"""
@@ -715,6 +731,65 @@ async def get_config(service: MCPService = Depends(get_mcp_service)):
                 config["providers"][provider]["api_key"] = "***"
     
     return config
+
+# Endpoint per le statistiche della memoria delle conversazioni
+@app.get("/api/v1/memory/stats", response_model=MemoryStatsResponse)
+async def get_memory_stats(service: MCPService = Depends(get_mcp_service)):
+    """Restituisce le statistiche della memoria delle conversazioni"""
+    logger.info("Richiesta statistiche memoria conversazioni")
+    stats = service.get_memory_stats()
+    return MemoryStatsResponse(**stats)
+
+# Endpoint per pulire la memoria delle conversazioni
+@app.delete("/api/v1/memory/clear", response_model=ClearMemoryResponse)
+async def clear_conversation_memory(
+    request: ClearMemoryRequest, 
+    service: MCPService = Depends(get_mcp_service)
+):
+    """Pulisce la memoria delle conversazioni per un utente specifico o tutti gli utenti"""
+    try:
+        user_id = request.user_id
+        users_before = len(service.conversation_memory)
+        
+        if user_id:
+            # Pulisci memoria per utente specifico
+            user_existed = user_id in service.conversation_memory
+            service.clear_user_memory(user_id)
+            users_cleared = 1 if user_existed else 0
+            
+            message = f"Memoria conversazione pulita per utente: {user_id}"
+            if not user_existed:
+                message += " (utente non aveva conversazioni attive)"
+                
+            logger.info(f"Memoria pulita per utente: {user_id}")
+            
+            return ClearMemoryResponse(
+                success=True,
+                message=message,
+                cleared_user=user_id,
+                users_cleared=users_cleared
+            )
+        else:
+            # Pulisci memoria per tutti gli utenti
+            service.clear_user_memory()  # Senza parametri pulisce tutto
+            users_cleared = users_before
+            
+            message = f"Memoria di tutte le conversazioni pulita. Utenti interessati: {users_cleared}"
+            logger.info("Memoria di tutte le conversazioni pulita")
+            
+            return ClearMemoryResponse(
+                success=True,
+                message=message,
+                cleared_user=None,
+                users_cleared=users_cleared
+            )
+            
+    except Exception as e:
+        logger.error(f"Errore nella pulizia della memoria: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Errore nella pulizia della memoria: {str(e)}"
+        )
 
 if __name__ == "__main__":
     # Configurazione del server
